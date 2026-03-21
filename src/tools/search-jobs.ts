@@ -78,73 +78,46 @@ export async function searchJobs(input: SearchJobsInput): Promise<JobSummary[]> 
     await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await humanDelay(2000, 3500);
 
-    // Wait for job cards to load
-    await page.waitForSelector('[data-test="job-tile-list"]', { timeout: 15000 }).catch(() => {
-      console.error('[searchJobs] Job tile list not found, trying alternate selector');
+    // Wait for job cards
+    await page.waitForSelector('article[data-test="JobTile"]', { timeout: 15000 }).catch(() => {
+      console.error('[searchJobs] Job tiles not found');
     });
 
     await humanDelay(1000, 2000);
 
-    // Extract job data
     const jobs = await page.evaluate((limit: number) => {
-      const cards = document.querySelectorAll('[data-test="job-tile"]');
+      const cards = document.querySelectorAll('article[data-test="JobTile"]');
       const results: JobSummary[] = [];
 
       cards.forEach((card, i) => {
         if (i >= limit) return;
 
-        const titleEl = card.querySelector('[data-test="job-tile-title"] a, h2 a, .job-title a');
+        const titleEl = card.querySelector('[data-test="job-tile-title-link UpLink"], h2 a');
         const title = titleEl?.textContent?.trim() ?? '';
         const href = titleEl?.getAttribute('href') ?? '';
         const url = href.startsWith('http') ? href : `https://www.upwork.com${href}`;
-
-        // Extract job ID from URL
-        const idMatch = href.match(/~([a-z0-9]+)/);
+        const idMatch = href.match(/~([a-z0-9]+)/i);
         const id = idMatch?.[1] ?? `job_${i}`;
 
-        const descEl = card.querySelector('[data-test="job-description-text"], .job-description');
-        const description_snippet = descEl?.textContent?.trim().slice(0, 200) ?? '';
+        const descEl = card.querySelector('[data-test="UpCLineClamp JobDescription"]');
+        const description_snippet = descEl?.textContent?.trim().slice(0, 250) ?? '';
 
-        const budgetEl = card.querySelector('[data-test="budget"], .job-type-label');
-        const budget = budgetEl?.textContent?.trim() ?? '';
+        const posted_at = card.querySelector('[data-test="job-pubilshed-date"]')?.textContent?.trim() ?? '';
+        const job_type = card.querySelector('[data-test="job-type-label"]')?.textContent?.trim() ?? '';
+        const experience_level = card.querySelector('[data-test="experience-level"]')?.textContent?.trim() ?? '';
+        const proposals_count = card.querySelector('[data-test="proposals-tier"]')?.textContent?.trim() ?? '';
+        const client_location = card.querySelector('[data-test="location"]')?.textContent?.replace('Location','').trim() ?? '';
+        const total_spent = card.querySelector('[data-test="total-spent"]')?.textContent?.trim() ?? '';
+        const client_rating = card.querySelector('[data-test="total-feedback"]')?.textContent?.trim().slice(0, 20) ?? '';
 
-        const postedEl = card.querySelector('[data-test="job-pubilshed-date"], time');
-        const posted_at = postedEl?.textContent?.trim() ?? '';
+        const skillEls = card.querySelectorAll('[data-test="token"]');
+        const skills = Array.from(skillEls).map(el => el.textContent?.trim()).filter(Boolean) as string[];
 
-        const skillEls = card.querySelectorAll('[data-test="token"], .skill-badge');
-        const skills = Array.from(skillEls)
-          .map((el) => el.textContent?.trim())
-          .filter(Boolean) as string[];
+        // Budget: hourly shows in job-type-label area, fixed shows separately
+        const budgetEl = card.querySelector('[data-test="budget"], [data-test="duration-label"]');
+        const budget = budgetEl?.textContent?.trim() ?? job_type;
 
-        const proposalsEl = card.querySelector('[data-test="proposals-tier"]');
-        const proposals_count = proposalsEl?.textContent?.trim() ?? '';
-
-        const clientRatingEl = card.querySelector('[data-test="client-rating"] .rating');
-        const client_rating = clientRatingEl?.textContent?.trim() ?? '';
-
-        const clientLocationEl = card.querySelector('[data-test="client-location"] strong');
-        const client_location = clientLocationEl?.textContent?.trim() ?? '';
-
-        const experienceEl = card.querySelector('[data-test="contractor-tier"]');
-        const experience_level = experienceEl?.textContent?.trim() ?? '';
-
-        const jobTypeEl = card.querySelector('[data-test="job-type-label"]');
-        const job_type = jobTypeEl?.textContent?.trim() ?? '';
-
-        results.push({
-          id,
-          title,
-          url,
-          budget,
-          job_type,
-          experience_level,
-          posted_at,
-          description_snippet,
-          skills,
-          proposals_count,
-          client_rating,
-          client_location,
-        });
+        results.push({ id, title, url, budget, job_type, experience_level, posted_at, description_snippet, skills, proposals_count, client_rating, client_location });
       });
 
       return results;
