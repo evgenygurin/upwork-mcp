@@ -133,13 +133,29 @@ export async function updateProfile(input: UpdateProfileInput): Promise<{
       }
     }
 
-    // ── Update Description ────────────────────────────────────────────
+    // ── Update Description / Overview ────────────────────────────────
     if (input.description) {
       log('Updating description...');
-      if (await clickEditButton(page, 'Edit description')) {
+      const descBtnLabels = ['Edit overview', 'Edit description', 'Edit bio', 'Edit professional overview', 'Edit summary'];
+      let descOpened = false;
+      for (const label of descBtnLabels) {
+        if (await clickEditButton(page, label)) { descOpened = true; break; }
+      }
+      if (descOpened) {
         await waitForModal(page);
-        const filled = await fillField(page, 'textarea', input.description)
-          || await fillField(page, '[contenteditable="true"]', input.description);
+        // Try textarea first, then contenteditable (rich text)
+        let filled = await fillField(page, 'textarea', input.description);
+        if (!filled) {
+          // Contenteditable: select all + type
+          try {
+            const editor = page.locator('[contenteditable="true"]').first();
+            await editor.waitFor({ state: 'visible', timeout: 5000 });
+            await editor.click();
+            await page.keyboard.press('Control+a');
+            await page.keyboard.type(input.description, { delay: 10 });
+            filled = true;
+          } catch { /* noop */ }
+        }
         if (filled && await saveModal(page)) {
           updated.push('description updated');
           log('Description updated.');
@@ -147,7 +163,7 @@ export async function updateProfile(input: UpdateProfileInput): Promise<{
           errors.push('description: could not fill/save');
         }
       } else {
-        errors.push('description: edit button not found');
+        errors.push('description: edit button not found (tried: ' + descBtnLabels.join(', ') + ')');
       }
     }
 
