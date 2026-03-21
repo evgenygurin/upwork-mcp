@@ -11,10 +11,11 @@ class BrowserManager {
   async init(): Promise<void> {
     if (this.browser) return;
 
-    log('Launching Chromium...');
+    log('Launching Chrome...');
     this.browser = await chromium.launch({
       headless: config.browser.headless,
       slowMo: config.browser.slowMo,
+      executablePath: config.browser.executablePath || undefined,
       args: [...config.browser.args],
     });
 
@@ -85,6 +86,7 @@ class BrowserManager {
     const browser = await chromium.launch({
       headless: config.browser.headless,
       slowMo: config.browser.slowMo,
+      executablePath: config.browser.executablePath || undefined,
       args: [...config.browser.args],
     });
 
