@@ -14,7 +14,7 @@ import { getMessages, GetMessagesSchema } from './tools/get-messages.js';
 import { sendMessage, SendMessageSchema } from './tools/send-message.js';
 import { getProfile, GetProfileSchema } from './tools/get-profile.js';
 import { analyzeJob, AnalyzeJobSchema } from './tools/analyze-job.js';
-import { manualLogin } from './tools/manual-login.js';
+import { manualLogin, saveSession } from './tools/manual-login.js';
 import { browserManager } from './browser/browser-manager.js';
 
 const log = (...args: unknown[]) => console.error('[UpworkMCP]', ...args);
@@ -24,10 +24,16 @@ const log = (...args: unknown[]) => console.error('[UpworkMCP]', ...args);
 const TOOLS: Tool[] = [
   {
     name: 'manual_login',
-    description: `Open a visible browser window for manual Upwork login.
-Use this FIRST if automatic login fails due to Cloudflare CAPTCHA or 2FA.
-A Chrome window will open — complete the login yourself (solve CAPTCHA, enter 2FA if needed).
-The session will be saved automatically so future tool calls won't need to login again.`,
+    description: `Step 1: Open a visible browser window at Upwork login page.
+Returns immediately — you then login manually in the browser (solve CAPTCHA, enter credentials, handle 2FA).
+After login is complete, call save_session to persist the session.`,
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'save_session',
+    description: `Step 2: After manually logging in via manual_login, call this to save the browser session.
+Checks if login was successful and saves cookies/storage for future headless use.
+Must be called AFTER you have fully logged in to Upwork in the browser window.`,
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -256,6 +262,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     switch (name) {
       case 'manual_login': {
         result = await manualLogin();
+        break;
+      }
+      case 'save_session': {
+        result = await saveSession();
         break;
       }
       case 'search_jobs': {
