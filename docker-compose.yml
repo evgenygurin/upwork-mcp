@@ -1,63 +1,47 @@
 services:
-  upwork-mcp:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: upwork-mcp
+  worker:
+    build: .
+    container_name: upwork-mcp-worker
     restart: unless-stopped
-    # MCP runs over stdio — container stays alive and pipes I/O
-    stdin_open: true
-    tty: false
-
+    ports:
+      - "47821:47821"
     environment:
-      # ── Required ──────────────────────────────────────────────────────────
+      # Chrome CDP — connects to Chrome running on host machine
+      - CDP_HOST=host.docker.internal
+      - CDP_PORT=9222
+      - WORKER_PORT=47821
+
+      # Upwork credentials
       - UPWORK_EMAIL=${UPWORK_EMAIL}
       - UPWORK_PASSWORD=${UPWORK_PASSWORD}
 
-      # ── Optional: Upwork API OAuth ─────────────────────────────────────────
-      - UPWORK_API_KEY=${UPWORK_API_KEY:-}
-      - UPWORK_API_SECRET=${UPWORK_API_SECRET:-}
-      - UPWORK_ACCESS_TOKEN=${UPWORK_ACCESS_TOKEN:-}
-      - UPWORK_ACCESS_SECRET=${UPWORK_ACCESS_SECRET:-}
-
-      # ── Browser ────────────────────────────────────────────────────────────
-      - BROWSER_HEADLESS=true
-      - BROWSER_SLOW_MO=${BROWSER_SLOW_MO:-50}
-
-      # ── Session ────────────────────────────────────────────────────────────
-      - SESSION_FILE=/app/sessions/upwork-session.json
-
-      # ── Freelancer profile ─────────────────────────────────────────────────
+      # Freelancer profile
       - FREELANCER_NAME=${FREELANCER_NAME:-Freelancer}
       - FREELANCER_TITLE=${FREELANCER_TITLE:-n8n Workflow Automation Expert}
-      - FREELANCER_NICHE=${FREELANCER_NICHE:-n8n,workflow automation,make.com}
+      - FREELANCER_NICHE=${FREELANCER_NICHE:-n8n,workflow automation}
 
-      # ── Bidding ────────────────────────────────────────────────────────────
+      # Bidding defaults
       - BID_RATE_MIN=${BID_RATE_MIN:-25}
       - BID_RATE_MAX=${BID_RATE_MAX:-75}
-      - BID_RATE_DEFAULT=${BID_RATE_DEFAULT:-40}
+      - BID_RATE_DEFAULT=${BID_RATE_DEFAULT:-45}
 
-      # ── Node ───────────────────────────────────────────────────────────────
-      - NODE_ENV=production
+      # Session file path
+      - SESSION_FILE=/app/sessions/upwork-session.json
 
     volumes:
       # Persist login session across restarts
       - upwork_sessions:/app/sessions
 
-    # Resource limits — browser can be memory-heavy
-    deploy:
-      resources:
-        limits:
-          memory: 1.5G
-          cpus: '1.0'
-        reservations:
-          memory: 512M
+    extra_hosts:
+      # Allow container to reach host machine (for Chrome CDP)
+      - "host.docker.internal:host-gateway"
 
-    # Shared memory for Chromium
-    shm_size: '512mb'
-
-    security_opt:
-      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:47821/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   upwork_sessions:

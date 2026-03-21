@@ -3,7 +3,8 @@ import { config } from '../config.js';
 
 const log = (...args: unknown[]) => console.error('[BrowserManager]', ...args);
 const CDP_PORT = parseInt(process.env.CDP_PORT ?? '9222');
-const CDP_URL = `http://127.0.0.1:${CDP_PORT}`;
+const CDP_HOST = process.env.CDP_HOST ?? '127.0.0.1';
+const CDP_URL = `http://${CDP_HOST}:${CDP_PORT}`;
 
 class BrowserManager {
   private browser: Browser | null = null;

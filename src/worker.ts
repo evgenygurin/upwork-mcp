@@ -43,6 +43,11 @@ async function runTool(name: string, args: Record<string, unknown>): Promise<unk
 }
 
 const server = http.createServer(async (req, res) => {
+  if (req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok', version: '2.0.0' }));
+    return;
+  }
   if (req.method !== 'POST' || req.url !== '/tool') {
     res.writeHead(404);
     res.end('Not found');
@@ -67,8 +72,9 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-  log(`Worker ready on http://127.0.0.1:${PORT}`);
+const HOST = process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1';
+server.listen(PORT, HOST, () => {
+  log(`Worker ready on http://${HOST}:${PORT}`);
 });
 
 process.on('SIGTERM', () => { server.close(); process.exit(0); });

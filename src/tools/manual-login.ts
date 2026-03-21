@@ -3,11 +3,12 @@ import path from 'path';
 import fs from 'fs';
 
 const CDP_PORT = parseInt(process.env.CDP_PORT ?? '9222');
+const CDP_HOST = process.env.CDP_HOST ?? '127.0.0.1';
 const log = (...args: unknown[]) => console.error('[ManualLogin]', ...args);
 
 /** Fetch JSON from Chrome CDP endpoint */
 async function cdpFetch(path: string): Promise<unknown> {
-  const res = await fetch(`http://127.0.0.1:${CDP_PORT}${path}`);
+  const res = await fetch(`http://${CDP_HOST}:${CDP_PORT}${path}`);
   if (!res.ok) throw new Error(`CDP HTTP ${res.status}: ${path}`);
   return res.json();
 }
