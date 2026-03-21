@@ -1,0 +1,64 @@
+services:
+  upwork-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: upwork-mcp
+    restart: unless-stopped
+    # MCP runs over stdio — container stays alive and pipes I/O
+    stdin_open: true
+    tty: false
+
+    environment:
+      # ── Required ──────────────────────────────────────────────────────────
+      - UPWORK_EMAIL=${UPWORK_EMAIL}
+      - UPWORK_PASSWORD=${UPWORK_PASSWORD}
+
+      # ── Optional: Upwork API OAuth ─────────────────────────────────────────
+      - UPWORK_API_KEY=${UPWORK_API_KEY:-}
+      - UPWORK_API_SECRET=${UPWORK_API_SECRET:-}
+      - UPWORK_ACCESS_TOKEN=${UPWORK_ACCESS_TOKEN:-}
+      - UPWORK_ACCESS_SECRET=${UPWORK_ACCESS_SECRET:-}
+
+      # ── Browser ────────────────────────────────────────────────────────────
+      - BROWSER_HEADLESS=true
+      - BROWSER_SLOW_MO=${BROWSER_SLOW_MO:-50}
+
+      # ── Session ────────────────────────────────────────────────────────────
+      - SESSION_FILE=/app/sessions/upwork-session.json
+
+      # ── Freelancer profile ─────────────────────────────────────────────────
+      - FREELANCER_NAME=${FREELANCER_NAME:-Freelancer}
+      - FREELANCER_TITLE=${FREELANCER_TITLE:-n8n Workflow Automation Expert}
+      - FREELANCER_NICHE=${FREELANCER_NICHE:-n8n,workflow automation,make.com}
+
+      # ── Bidding ────────────────────────────────────────────────────────────
+      - BID_RATE_MIN=${BID_RATE_MIN:-25}
+      - BID_RATE_MAX=${BID_RATE_MAX:-75}
+      - BID_RATE_DEFAULT=${BID_RATE_DEFAULT:-40}
+
+      # ── Node ───────────────────────────────────────────────────────────────
+      - NODE_ENV=production
+
+    volumes:
+      # Persist login session across restarts
+      - upwork_sessions:/app/sessions
+
+    # Resource limits — browser can be memory-heavy
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+
+    # Shared memory for Chromium
+    shm_size: '512mb'
+
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  upwork_sessions:
+    driver: local
