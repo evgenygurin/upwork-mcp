@@ -48,35 +48,6 @@ export interface JobSummary {
   client_location: string;
 }
 
-function extractJobsFromPage(cards: NodeListOf<Element>, seenIds: Set<string>): JobSummary[] {
-  const results: JobSummary[] = [];
-  cards.forEach((card, i) => {
-    const titleEl = card.querySelector('[data-test="job-tile-title-link UpLink"], h2 a');
-    const title = titleEl?.textContent?.trim() ?? '';
-    const href = titleEl?.getAttribute('href') ?? '';
-    if (!title || !href) return;
-
-    const url = href.startsWith('http') ? href : `https://www.upwork.com${href}`;
-    const idMatch = href.match(/~([a-z0-9]+)/i);
-    const id = idMatch?.[1] ?? `job_${i}`;
-    if (seenIds.has(id)) return;
-
-    const descEl = card.querySelector('[data-test="UpCLineClamp JobDescription"]');
-    const posted_at = card.querySelector('[data-test="job-pubilshed-date"]')?.textContent?.trim() ?? '';
-    const job_type = card.querySelector('[data-test="job-type-label"]')?.textContent?.trim() ?? '';
-    const experience_level = card.querySelector('[data-test="experience-level"]')?.textContent?.trim() ?? '';
-    const proposals_count = card.querySelector('[data-test="proposals-tier"]')?.textContent?.trim() ?? '';
-    const client_location = card.querySelector('[data-test="location"]')?.textContent?.replace('Location', '').trim() ?? '';
-    const client_rating = card.querySelector('[data-test="total-feedback"]')?.textContent?.trim().slice(0, 20) ?? '';
-    const skillEls = card.querySelectorAll('[data-test="token"]');
-    const skills = Array.from(skillEls).map(el => el.textContent?.trim()).filter(Boolean) as string[];
-    const budgetEl = card.querySelector('[data-test="budget"], [data-test="duration-label"]');
-    const budget = budgetEl?.textContent?.trim() ?? job_type;
-
-    results.push({ id, title, url, budget, job_type, experience_level, posted_at, description_snippet: descEl?.textContent?.trim().slice(0, 250) ?? '', skills, proposals_count, client_rating, client_location });
-  });
-  return results;
-}
 
 export async function searchJobs(input: SearchJobsInput): Promise<JobSummary[]> {
   const page = await ensureLoggedIn();
@@ -110,9 +81,6 @@ export async function searchJobs(input: SearchJobsInput): Promise<JobSummary[]> 
       });
       await humanDelay(800, 1500);
 
-      const pageJobs = await page.evaluate(extractJobsFromPage as unknown as (cards: NodeListOf<Element>, seenIds: Set<string>) => JobSummary[]);
-
-      // page.evaluate can't use closure — re-extract manually
       const rawJobs = await page.evaluate(() => {
         const cards = document.querySelectorAll('article[data-test="JobTile"]');
         return Array.from(cards).map(card => {
