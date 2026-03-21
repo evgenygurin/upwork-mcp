@@ -47,21 +47,25 @@ async function waitForModal(page: Page): Promise<void> {
   await humanDelay(500, 1000);
 }
 
-/** Clear and fill a text input/textarea */
+/** Clear and fill a text input/textarea — uses pressSequentially to trigger React events */
 async function fillField(page: Page, selector: string, value: string): Promise<boolean> {
   try {
     const el = page.locator(selector).first();
     await el.waitFor({ state: 'visible', timeout: 5000 });
-    await el.click({ clickCount: 3 }); // select all
-    await el.fill(value);
-    await humanDelay(300, 600);
+    await el.click();
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Delete');
+    await humanDelay(100, 200);
+    // pressSequentially fires keydown/keypress/input/keyup — React picks these up
+    await el.pressSequentially(value, { delay: 8 });
+    await humanDelay(300, 500);
     return true;
   } catch {
     return false;
   }
 }
 
-/** Click Save/Submit button in a modal */
+/** Click Save/Submit button in a modal — waits for it to become enabled (React validation) */
 async function saveModal(page: Page): Promise<boolean> {
   const saveSelectors = [
     'button[type="submit"]',
@@ -74,11 +78,18 @@ async function saveModal(page: Page): Promise<boolean> {
     try {
       const btn = page.locator(sel).first();
       const visible = await btn.isVisible({ timeout: 2000 }).catch(() => false);
-      if (visible) {
-        await btn.click();
-        await humanDelay(1000, 2000);
-        return true;
+      if (!visible) continue;
+      // Wait for button to be enabled (React re-enables after valid input)
+      await btn.waitFor({ state: 'visible', timeout: 5000 });
+      // Poll for enabled state up to 5s
+      for (let i = 0; i < 10; i++) {
+        const disabled = await btn.isDisabled().catch(() => true);
+        if (!disabled) break;
+        await humanDelay(500, 600);
       }
+      await btn.click({ force: true }); // force=true to click even if briefly disabled
+      await humanDelay(1000, 2000);
+      return true;
     } catch { /* try next */ }
   }
   return false;
@@ -143,8 +154,10 @@ export async function updateProfile(input: UpdateProfileInput): Promise<{
       }
       if (descOpened) {
         await waitForModal(page);
-        // Try textarea first, then contenteditable (rich text)
-        let filled = await fillField(page, 'textarea', input.description);
+        // Try known textarea selectors (Upwork uses #profile-description)
+        let filled = await fillField(page, '#profile-description', input.description)
+          || await fillField(page, 'textarea[id*="description"], textarea[id*="overview"], textarea[id*="bio"]', input.description)
+          || await fillField(page, 'textarea', input.description);
         if (!filled) {
           // Contenteditable: select all + type
           try {
