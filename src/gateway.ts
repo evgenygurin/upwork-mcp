@@ -151,17 +151,7 @@ Returns grade (A+/A/B/C/D/F), recommendation (APPLY NOW / APPLY / CONSIDER / SKI
       type: 'object',
       properties: {
         job: {
-          type: 'object',
-          properties: {
-            title:       { type: 'string' },
-            description: { type: 'string' },
-            budget:      { type: 'string' },
-            job_type:    { type: 'string' },
-            skills:      { type: 'array', items: { type: 'string' } },
-            proposals_count: { type: 'string' },
-            client: { type: 'object' },
-          },
-          required: ['title', 'description'],
+          description: 'Job object with title, description, budget, skills, client info',
         },
         my_rate: { type: ['number', 'string'] },
       },

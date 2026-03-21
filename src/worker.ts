@@ -31,7 +31,13 @@ async function runTool(name: string, args: Record<string, unknown>): Promise<unk
     case 'get_proposals':   return getProposals(GetProposalsSchema.parse(args));
     case 'get_messages':    return getMessages(GetMessagesSchema.parse(args));
     case 'send_message':    return sendMessage(SendMessageSchema.parse(args));
-    case 'analyze_job':     return analyzeJob(AnalyzeJobSchema.parse(args));
+    case 'analyze_job': {
+      // job may arrive as a JSON string if MCP serialized it
+      if (typeof args.job === 'string') {
+        try { args.job = JSON.parse(args.job as string); } catch { /* leave as-is */ }
+      }
+      return analyzeJob(AnalyzeJobSchema.parse(args));
+    }
     default: throw new Error(`Unknown tool: ${name}`);
   }
 }
