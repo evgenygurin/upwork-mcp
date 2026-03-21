@@ -5,7 +5,7 @@ import type { Page } from 'playwright';
 export const UpdateProfileSchema = z.object({
   title: z.string().optional().describe('Professional title, e.g. "n8n Workflow Automation Expert"'),
   description: z.string().optional().describe('Profile overview/bio text'),
-  hourly_rate: z.number().optional().describe('Hourly rate in USD'),
+  hourly_rate: z.coerce.number().optional().describe('Hourly rate in USD'),
   skills: z.array(z.string()).optional().describe('List of skills to add'),
 });
 export type UpdateProfileInput = z.infer<typeof UpdateProfileSchema>;

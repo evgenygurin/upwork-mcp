@@ -10,8 +10,8 @@ export const SearchJobsSchema = z.object({
     .string()
     .optional()
     .describe('Job category filter, e.g. "Web Development", "Data Science"'),
-  budget_min: z.number().optional().describe('Minimum budget in USD'),
-  budget_max: z.number().optional().describe('Maximum budget in USD'),
+  budget_min: z.coerce.number().optional().describe('Minimum budget in USD'),
+  budget_max: z.coerce.number().optional().describe('Maximum budget in USD'),
   job_type: z
     .enum(['hourly', 'fixed', 'all'])
     .optional()
@@ -27,7 +27,7 @@ export const SearchJobsSchema = z.object({
     .optional()
     .default(7)
     .describe('Only show jobs posted within N days'),
-  limit: z.number().optional().default(10).describe('Max number of results to return'),
+  limit: z.coerce.number().optional().default(10).describe('Max number of results to return'),
 });
 
 export type SearchJobsInput = z.infer<typeof SearchJobsSchema>;

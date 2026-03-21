@@ -7,7 +7,7 @@ export const GetProposalsSchema = z.object({
     .optional()
     .default('active')
     .describe('Filter proposals by status'),
-  limit: z.number().optional().default(20).describe('Max proposals to return'),
+  limit: z.coerce.number().optional().default(20).describe('Max proposals to return'),
 });
 
 export type GetProposalsInput = z.infer<typeof GetProposalsSchema>;

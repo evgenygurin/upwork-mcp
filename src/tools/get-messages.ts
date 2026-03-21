@@ -8,7 +8,7 @@ export const GetMessagesSchema = z.object({
     .describe(
       'Specific conversation room ID to read. If omitted, returns list of all conversations.'
     ),
-  limit: z.number().optional().default(20).describe('Max messages or conversations to return'),
+  limit: z.coerce.number().optional().default(20).describe('Max messages or conversations to return'),
   unread_only: z
     .coerce.boolean()
     .optional()
