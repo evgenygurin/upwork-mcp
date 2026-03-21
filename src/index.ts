@@ -15,6 +15,7 @@ import { sendMessage, SendMessageSchema } from './tools/send-message.js';
 import { getProfile, GetProfileSchema } from './tools/get-profile.js';
 import { analyzeJob, AnalyzeJobSchema } from './tools/analyze-job.js';
 import { manualLogin, saveSession } from './tools/manual-login.js';
+import { updateProfile, UpdateProfileSchema } from './tools/update-profile.js';
 import { browserManager } from './browser/browser-manager.js';
 
 const log = (...args: unknown[]) => console.error('[UpworkMCP]', ...args);
@@ -35,6 +36,22 @@ After login is complete, call save_session to persist the session.`,
 Checks if login was successful and saves cookies/storage for future headless use.
 Must be called AFTER you have fully logged in to Upwork in the browser window.`,
     inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'update_profile',
+    description: `Update your Upwork freelancer profile fields.
+Can update: title, description/bio, hourly_rate, skills.
+Each field is optional — only provide what you want to change.
+Uses the edit buttons on your profile page (requires browser via connect-chrome.bat).`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Professional title shown on your profile' },
+        description: { type: 'string', description: 'Profile overview/bio' },
+        hourly_rate: { type: 'number', description: 'Hourly rate in USD' },
+        skills: { type: 'array', items: { type: 'string' }, description: 'Skills to add' },
+      },
+    },
   },
   {
     name: 'search_jobs',
@@ -266,6 +283,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
       case 'save_session': {
         result = await saveSession();
+        break;
+      }
+      case 'update_profile': {
+        const input = UpdateProfileSchema.parse(args);
+        result = await updateProfile(input);
         break;
       }
       case 'search_jobs': {

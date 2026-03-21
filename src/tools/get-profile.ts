@@ -2,130 +2,94 @@ import { z } from 'zod';
 import { ensureLoggedIn, humanDelay } from '../browser/upwork-auth.js';
 
 export const GetProfileSchema = z.object({
-  include_stats: z
-    .coerce.boolean()
-    .optional()
-    .default(true)
-    .describe('Include earnings stats, connects balance, JSS score'),
+  include_stats: z.coerce.boolean().optional().default(true),
 });
-
 export type GetProfileInput = z.infer<typeof GetProfileSchema>;
 
 export interface FreelancerProfile {
-  name: string;
-  title: string;
-  description: string;
-  hourly_rate: string;
-  availability: string;
-  skills: string[];
-  location: string;
-  // Stats
-  jss_score: string;
-  top_rated: boolean;
-  total_earnings: string;
-  total_jobs: string;
-  total_hours: string;
-  connects_balance: string;
-  // Ratings
-  rating: string;
-  reviews_count: string;
-  // Profile completeness
+  name: string; title: string; description: string;
+  hourly_rate: string; availability: string; skills: string[];
+  location: string; jss_score: string; top_rated: boolean;
+  total_earnings: string; total_jobs: string; total_hours: string;
+  connects_balance: string; rating: string; reviews_count: string;
   profile_url: string;
+}
+
+/** Discover the freelancer's own profile URL from the settings page */
+async function getProfileUrl(page: import('playwright').Page): Promise<string> {
+  await page.goto('https://www.upwork.com/freelancers/settings/profile', {
+    waitUntil: 'domcontentloaded', timeout: 30000,
+  });
+  await humanDelay(2000, 3000);
+  const href = await page.evaluate(() => {
+    const a = document.querySelector('a[href*="/freelancers/~"]');
+    return a?.getAttribute('href') ?? '';
+  });
+  if (!href) throw new Error('Could not find profile URL from settings page.');
+  return href.startsWith('http') ? href : `https://www.upwork.com${href}`;
 }
 
 export async function getProfile(input: GetProfileInput): Promise<FreelancerProfile> {
   const page = await ensureLoggedIn();
 
   try {
-    console.error('[getProfile] Loading profile page...');
-    await page.goto('https://www.upwork.com/freelancers/settings/profile', {
-      waitUntil: 'domcontentloaded',
-      timeout: 30000,
-    });
-    await humanDelay(2000, 3500);
+    const profileUrl = await getProfileUrl(page);
+    console.error('[getProfile] Profile URL:', profileUrl);
 
-    // Also fetch stats from the main account page
-    let connects_balance = '';
-    let jss_score = '';
-    let top_rated = false;
-    let total_earnings = '';
+    await page.goto(profileUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await humanDelay(3000, 4000);
 
-    if (input.include_stats) {
-      await page.goto('https://www.upwork.com/nx/find-work/best-matches', {
-        waitUntil: 'domcontentloaded',
-        timeout: 30000,
-      });
-      await humanDelay(1500, 3000);
+    const profile = await page.evaluate(() => {
+      const text = (sel: string) => document.querySelector(sel)?.textContent?.trim() ?? '';
+      const texts = (sel: string) => Array.from(document.querySelectorAll(sel))
+        .map(e => e.textContent?.trim()).filter(Boolean) as string[];
 
-      const statsData = await page.evaluate(() => {
-        return {
-          connects:
-            document.querySelector('[data-test="connects-balance"], .connects-balance')
-              ?.textContent?.trim() ?? '',
-          jss: document.querySelector('[data-test="jss-score"], .jss-score')?.textContent?.trim() ?? '',
-          top_rated:
-            document.querySelector('[data-test="top-rated-badge"], .top-rated-badge') !== null,
-        };
-      });
+      // Based on actual DOM inspection
+      const name = text('h2.d-inline') || text('h2[class*="d-inline"]') || text('h2');
+      const title = text('h3.mb-0') || text('h3[class*="mb-0"]');
+      const hourly_rate = text('h3.my-6x') || text('h3[class*="my-6"]');
 
-      connects_balance = statsData.connects;
-      jss_score = statsData.jss;
-      top_rated = statsData.top_rated;
+      // Description — usually in a section with data-v-test or specific class
+      const descEl =
+        document.querySelector('[data-test="overview"] p') ??
+        document.querySelector('[class*="overview"] p') ??
+        document.querySelector('[class*="description"] p') ??
+        Array.from(document.querySelectorAll('p')).find(p => (p.textContent?.length ?? 0) > 100) ??
+        null;
+      const description = descEl?.textContent?.trim() ?? '';
 
-      // Navigate to earnings
-      await page.goto('https://www.upwork.com/nx/payments/reports', {
-        waitUntil: 'domcontentloaded',
-        timeout: 30000,
-      });
-      await humanDelay(1500, 2500);
+      // Skills — air3-token spans
+      const skills = texts('.air3-token span, .air3-token');
 
-      total_earnings = await page
-        .locator('[data-test="total-earnings"], .total-earnings')
-        .first()
-        .textContent()
-        .catch(() => '')
-        .then((t) => t?.trim() ?? '');
-    }
+      // Location — often next to the name area
+      const location = text('[class*="location"]') || text('[itemprop="address"]');
 
-    // Navigate to public profile
-    await page.goto('https://www.upwork.com/freelancers/~me', {
-      waitUntil: 'domcontentloaded',
-      timeout: 30000,
-    });
-    await humanDelay(2000, 3500);
+      // Availability
+      const availability = text('[data-test="popover-hover-trigger"]') || '';
 
-    const profile = await page.evaluate((): Omit<FreelancerProfile, 'connects_balance' | 'jss_score' | 'top_rated' | 'total_earnings'> => {
-      const get = (sel: string) =>
-        document.querySelector(sel)?.textContent?.trim() ?? '';
-      const getAll = (sel: string) =>
-        Array.from(document.querySelectorAll(sel))
-          .map((el) => el.textContent?.trim())
-          .filter(Boolean) as string[];
+      // Connects
+      const connectsEl = document.querySelector('[data-test="sidebar-connects-card"] h3');
+      const connects_balance = connectsEl?.textContent?.match(/\d+/)?.[0] ?? '';
+
+      // Stats
+      const total_jobs = text('[data-test="total-jobs"]') || text('[class*="totalJobs"]');
+      const total_hours = text('[data-test="total-hours"]') || text('[class*="totalHours"]');
+      const rating = text('[class*="rating-value"]') || text('[class*="score"]');
+      const reviews_count = text('[class*="feedbackCount"]') || text('[class*="reviews-count"]');
 
       return {
-        name: get('[data-test="freelancer-name"], h1, .freelancer-name'),
-        title: get('[data-test="freelancer-title"], .title, h2'),
-        description:
-          get('[data-test="description"] p, .description p') ||
-          get('[data-test="description"], .description'),
-        hourly_rate: get('[data-test="hourly-rate"], .hourly-rate, .rate'),
-        availability: get('[data-test="availability"], .availability'),
-        skills: getAll('[data-test="skill"] span, .skill-badge, .air3-token'),
-        location: get('[data-test="location"], .location'),
-        rating: get('[data-test="rating"] .rating-value, .rating'),
-        reviews_count: get('[data-test="reviews-count"], .reviews-count'),
-        total_jobs: get('[data-test="total-jobs"], .total-jobs'),
-        total_hours: get('[data-test="total-hours"], .total-hours'),
+        name, title, description, hourly_rate, availability, skills,
+        location, connects_balance, total_jobs, total_hours, rating, reviews_count,
         profile_url: window.location.href,
       };
     });
 
     return {
       ...profile,
-      connects_balance,
-      jss_score,
-      top_rated,
-      total_earnings,
+      profile_url: profileUrl,
+      jss_score: '',
+      top_rated: false,
+      total_earnings: '',
     };
   } finally {
     await page.close();

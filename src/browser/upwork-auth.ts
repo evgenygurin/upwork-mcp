@@ -12,7 +12,7 @@ export async function ensureLoggedIn(): Promise<Page> {
   await browserManager.init();
   const page = await browserManager.newPage();
 
-  log(`Browser ready (mode: ${browserManager.getMode()})`);
+  log('Browser ready (CDP mode)');
 
   // Quick check — navigate home if page is blank
   if (!page.url() || page.url() === 'about:blank') {
