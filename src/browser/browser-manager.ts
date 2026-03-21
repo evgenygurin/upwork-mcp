@@ -29,28 +29,17 @@ class BrowserManager {
       },
     });
 
-    // Stealth patches — mask automation signals
-    await this.context.addInitScript(() => {
-      // Remove webdriver flag
-      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-
-      // Mock plugins
-      Object.defineProperty(navigator, 'plugins', {
-        get: () => [1, 2, 3, 4, 5],
-      });
-
-      // Mock languages
-      Object.defineProperty(navigator, 'languages', {
-        get: () => ['en-US', 'en'],
-      });
-
-      // Mock chrome runtime
-      (window as unknown as Record<string, unknown>).chrome = {
-        runtime: {},
-      };
-    });
-
+    await this._applyStealthPatches();
     log('Browser ready.');
+  }
+
+  private async _applyStealthPatches(): Promise<void> {
+    await this.context!.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+      Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+      (window as unknown as Record<string, unknown>).chrome = { runtime: {} };
+    });
   }
 
   async newPage(): Promise<Page> {
@@ -99,14 +88,7 @@ class BrowserManager {
       storageState: config.session.file,
     });
 
-    // Apply stealth patches to loaded session too
-    await this.context.addInitScript(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-      Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-      (window as unknown as Record<string, unknown>).chrome = { runtime: {} };
-    });
-
+    await this._applyStealthPatches();
     log('Session loaded from', config.session.file);
     return true;
   }
@@ -114,13 +96,14 @@ class BrowserManager {
   async close(): Promise<void> {
     await this.saveSession();
     await this.browser?.close();
+    await this.context?.close();
     this.browser = null;
     this.context = null;
     log('Browser closed.');
   }
 
   isReady(): boolean {
-    return this.browser !== null && this.context !== null;
+    return this.context !== null;
   }
 }
 
