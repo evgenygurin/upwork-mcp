@@ -3,7 +3,7 @@ import { ensureLoggedIn, humanDelay } from '../browser/upwork-auth.js';
 
 export const GetProfileSchema = z.object({
   include_stats: z
-    .boolean()
+    .coerce.boolean()
     .optional()
     .default(true)
     .describe('Include earnings stats, connects balance, JSS score'),

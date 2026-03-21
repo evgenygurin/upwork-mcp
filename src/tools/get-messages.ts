@@ -10,7 +10,7 @@ export const GetMessagesSchema = z.object({
     ),
   limit: z.number().optional().default(20).describe('Max messages or conversations to return'),
   unread_only: z
-    .boolean()
+    .coerce.boolean()
     .optional()
     .default(false)
     .describe('Only return conversations with unread messages'),

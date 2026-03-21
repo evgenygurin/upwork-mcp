@@ -27,7 +27,7 @@ export const SubmitProposalSchema = z.object({
       'Answers to screening questions in order. Get questions first via get_job_details.'
     ),
   boost_bid: z
-    .boolean()
+    .coerce.boolean()
     .optional()
     .default(false)
     .describe('Whether to use extra Connects to boost the proposal visibility'),
