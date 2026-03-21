@@ -1,70 +1,126 @@
-import { chromium } from 'playwright';
-import { browserManager } from '../browser/browser-manager.js';
 import { config } from '../config.js';
 import path from 'path';
+import fs from 'fs';
 
-const CDP_URL = `http://localhost:${process.env.CDP_PORT ?? '9222'}`;
+const CDP_PORT = parseInt(process.env.CDP_PORT ?? '9222');
 const log = (...args: unknown[]) => console.error('[ManualLogin]', ...args);
 
+/** Fetch JSON from Chrome CDP endpoint */
+async function cdpFetch(path: string): Promise<unknown> {
+  const res = await fetch(`http://localhost:${CDP_PORT}${path}`);
+  if (!res.ok) throw new Error(`CDP HTTP ${res.status}: ${path}`);
+  return res.json();
+}
+
+/** Send a CDP command to a specific target */
+async function cdpCommand(wsUrl: string, method: string, params = {}): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    // Use dynamic import for ws
+    import('ws').then(({ default: WebSocket }) => {
+      const ws = new WebSocket(wsUrl);
+      const id = 1;
+      ws.once('open', () => {
+        ws.send(JSON.stringify({ id, method, params }));
+      });
+      ws.on('message', (data: Buffer) => {
+        try {
+          const msg = JSON.parse(data.toString());
+          if (msg.id === id) {
+            ws.close();
+            if (msg.error) reject(new Error(msg.error.message));
+            else resolve(msg.result);
+          }
+        } catch { /* ignore parse errors */ }
+      });
+      ws.on('error', reject);
+      setTimeout(() => { ws.close(); reject(new Error('CDP command timeout')); }, 10000);
+    }).catch(reject);
+  });
+}
+
 /**
- * Connects to existing Chrome via CDP and saves the session.
- * Requires Chrome to be running with --remote-debugging-port=9222.
- * Run connect-chrome.bat first if not already done.
+ * Connects to existing Chrome via CDP (no Playwright needed),
+ * extracts cookies from the Upwork tab, and saves session file.
  */
 export async function manualLogin(): Promise<{ success: boolean; message: string }> {
   try {
-    log('Connecting to Chrome via CDP at', CDP_URL);
-    const browser = await chromium.connectOverCDP(CDP_URL, { timeout: 5000 });
-    const contexts = browser.contexts();
+    log('Checking CDP at localhost:', CDP_PORT);
 
-    if (!contexts.length) {
-      await browser.close();
-      return { success: false, message: 'Connected to Chrome but no context found. Make sure Upwork is open in a tab.' };
-    }
+    // Get list of tabs
+    const targets = await cdpFetch('/json') as Array<{
+      type: string; url: string; webSocketDebuggerUrl: string; title: string;
+    }>;
 
-    const context = contexts[0];
-    const pages = context.pages();
-    const upworkPage = pages.find(p => p.url().includes('upwork.com'))
-      ?? pages[pages.length - 1];
+    const upworkTarget = targets.find(t =>
+      t.type === 'page' && t.url.includes('upwork.com')
+    );
 
-    const url = upworkPage?.url() ?? '';
-    log('Found page:', url);
-
-    // Navigate to upwork home to confirm login state
-    if (upworkPage && !url.includes('upwork.com')) {
-      await upworkPage.goto('https://www.upwork.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
-    }
-
-    const finalUrl = upworkPage?.url() ?? '';
-    const isLoggedIn = finalUrl.includes('upwork.com') && !finalUrl.includes('/login');
-
-    if (!isLoggedIn) {
-      await browser.close();
+    if (!upworkTarget) {
+      const allUrls = targets.filter(t => t.type === 'page').map(t => t.url);
       return {
         success: false,
-        message: `Chrome is connected but not logged in to Upwork. URL: ${finalUrl}. Please login to Upwork in Chrome first.`,
+        message: `Chrome is connected but no Upwork tab found.\nOpen tabs: ${allUrls.join(', ')}\nPlease navigate to upwork.com first.`,
       };
     }
 
-    // Save session
-    const fs = await import('fs');
-    fs.mkdirSync(path.dirname(config.session.file), { recursive: true });
-    await context.storageState({ path: config.session.file });
-    log('Session saved to', config.session.file);
+    log('Found Upwork tab:', upworkTarget.url);
 
-    await browser.close();
+    // Check if logged in
+    if (upworkTarget.url.includes('/login') || upworkTarget.url.includes('account-security')) {
+      return {
+        success: false,
+        message: `Upwork tab found but not logged in. URL: ${upworkTarget.url}\nPlease login to Upwork first, then call manual_login again.`,
+      };
+    }
+
+    // Get all cookies for upwork.com
+    const cookieResult = await cdpCommand(
+      upworkTarget.webSocketDebuggerUrl,
+      'Network.getAllCookies'
+    ) as { cookies: Array<{
+      name: string; value: string; domain: string; path: string;
+      expires: number; httpOnly: boolean; secure: boolean; sameSite?: string;
+    }> };
+
+    const upworkCookies = cookieResult.cookies.filter(c =>
+      c.domain.includes('upwork.com')
+    );
+
+    log(`Found ${upworkCookies.length} Upwork cookies`);
+
+    // Build Playwright-compatible storageState format
+    const storageState = {
+      cookies: upworkCookies.map(c => ({
+        name: c.name,
+        value: c.value,
+        domain: c.domain,
+        path: c.path,
+        expires: c.expires,
+        httpOnly: c.httpOnly,
+        secure: c.secure,
+        sameSite: (c.sameSite as 'Strict' | 'Lax' | 'None') ?? 'None',
+      })),
+      origins: [] as unknown[],
+    };
+
+    // Save session file
+    const sessionDir = path.dirname(config.session.file);
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(config.session.file, JSON.stringify(storageState, null, 2));
+
+    log('Session saved to', config.session.file);
 
     return {
       success: true,
-      message: `Connected to Chrome and saved session from: ${finalUrl}. All tools are now ready!`,
+      message: `Session saved! Extracted ${upworkCookies.length} cookies from: ${upworkTarget.url}\nAll tools are now ready. Session file: ${config.session.file}`,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('connect') || msg.includes('ECONNREFUSED') || msg.includes('timeout')) {
+    if (msg.includes('ECONNREFUSED') || msg.includes('fetch') || msg.includes('connect')) {
       return {
         success: false,
         message:
-          'Cannot connect to Chrome. Chrome is not running with --remote-debugging-port=9222.\n' +
+          'Cannot connect to Chrome CDP. Chrome is not running with --remote-debugging-port=9222.\n' +
           'Fix: Run "connect-chrome.bat" in the upwork-mcp folder, then call manual_login again.',
       };
     }
@@ -72,9 +128,4 @@ export async function manualLogin(): Promise<{ success: boolean; message: string
   }
 }
 
-/**
- * Alias kept for backwards compatibility.
- */
-export async function saveSession(): Promise<{ success: boolean; message: string }> {
-  return manualLogin();
-}
+export { manualLogin as saveSession };

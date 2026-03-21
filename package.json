@@ -12,11 +12,14 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.10.1",
+    "@types/ws": "^8.18.1",
     "axios": "^1.7.9",
+    "chrome-remote-interface": "^0.34.0",
     "dotenv": "^16.4.7",
     "playwright": "^1.50.1",
     "playwright-extra": "^4.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "ws": "^8.19.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
