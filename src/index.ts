@@ -14,6 +14,7 @@ import { getMessages, GetMessagesSchema } from './tools/get-messages.js';
 import { sendMessage, SendMessageSchema } from './tools/send-message.js';
 import { getProfile, GetProfileSchema } from './tools/get-profile.js';
 import { analyzeJob, AnalyzeJobSchema } from './tools/analyze-job.js';
+import { manualLogin } from './tools/manual-login.js';
 import { browserManager } from './browser/browser-manager.js';
 
 const log = (...args: unknown[]) => console.error('[UpworkMCP]', ...args);
@@ -21,6 +22,14 @@ const log = (...args: unknown[]) => console.error('[UpworkMCP]', ...args);
 // ─── Tool definitions ──────────────────────────────────────────────────────────
 
 const TOOLS: Tool[] = [
+  {
+    name: 'manual_login',
+    description: `Open a visible browser window for manual Upwork login.
+Use this FIRST if automatic login fails due to Cloudflare CAPTCHA or 2FA.
+A Chrome window will open — complete the login yourself (solve CAPTCHA, enter 2FA if needed).
+The session will be saved automatically so future tool calls won't need to login again.`,
+    inputSchema: { type: 'object', properties: {} },
+  },
   {
     name: 'search_jobs',
     description: `Search for jobs on Upwork. Optimized for n8n workflow automation niche.
@@ -245,6 +254,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     let result: unknown;
 
     switch (name) {
+      case 'manual_login': {
+        result = await manualLogin();
+        break;
+      }
       case 'search_jobs': {
         const input = SearchJobsSchema.parse(args);
         result = await searchJobs(input);
