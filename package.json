@@ -5,9 +5,9 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "worker": "nodemon --watch src --ext ts --exec \"tsx src/worker.ts\"",
     "clean": "rm -rf dist"
   },
   "dependencies": {
@@ -16,6 +16,7 @@
     "axios": "^1.7.9",
     "chrome-remote-interface": "^0.34.0",
     "dotenv": "^16.4.7",
+    "nodemon": "^3.1.14",
     "playwright": "^1.50.1",
     "playwright-extra": "^4.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
