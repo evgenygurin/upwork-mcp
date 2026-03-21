@@ -62,7 +62,7 @@ export async function getMessages(input: GetMessagesInput): Promise<GetMessagesR
       await humanDelay(1000, 2000);
 
       const result = await page.evaluate(
-        (limit: number, room_id: string): GetMessagesResult => {
+        ({ limit, room_id }: { limit: number; room_id: string }): GetMessagesResult => {
           const participantEl = document.querySelector(
             '[data-test="room-participant-name"], .room-header-name, h1'
           );
@@ -101,8 +101,7 @@ export async function getMessages(input: GetMessagesInput): Promise<GetMessagesR
 
           return { messages, room_id, participant_name };
         },
-        input.limit,
-        input.room_id
+        { limit: input.limit, room_id: input.room_id }
       );
 
       console.error(`[getMessages] Got ${result.messages?.length ?? 0} messages`);
@@ -124,7 +123,7 @@ export async function getMessages(input: GetMessagesInput): Promise<GetMessagesR
       await humanDelay(1000, 2000);
 
       const result = await page.evaluate(
-        (limit: number, unreadOnly: boolean): GetMessagesResult => {
+        ({ limit, unreadOnly }: { limit: number; unreadOnly: boolean }): GetMessagesResult => {
           const roomEls = document.querySelectorAll(
             '[data-test="room-item"], .room-item, .conversation-item'
           );
@@ -174,8 +173,7 @@ export async function getMessages(input: GetMessagesInput): Promise<GetMessagesR
 
           return { conversations };
         },
-        input.limit,
-        input.unread_only
+        { limit: input.limit, unreadOnly: input.unread_only }
       );
 
       console.error(`[getMessages] Found ${result.conversations?.length ?? 0} conversations`);
