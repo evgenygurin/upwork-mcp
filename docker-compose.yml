@@ -6,9 +6,10 @@ services:
     ports:
       - "47821:47821"
     environment:
-      # Chrome CDP — connects to Chrome running on host machine
+      # Chrome CDP — connects to cdp-proxy running on host machine
+      # Run: node cdp-proxy.js  (proxies port 9223 → Chrome 9222, fixes Host header)
       - CDP_HOST=host.docker.internal
-      - CDP_PORT=9222
+      - CDP_PORT=9223
       - WORKER_PORT=47821
 
       # Upwork credentials

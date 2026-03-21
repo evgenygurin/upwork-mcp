@@ -2,7 +2,7 @@
 
 A **Model Context Protocol (MCP) server** that connects Claude to Upwork — enabling AI agents to search jobs, analyze opportunities, submit proposals, and manage client communications autonomously.
 
-Built for freelancers specializing in **n8n workflow automation**, Make.com, and API integrations.
+Works for any freelance niche: development, design, writing, marketing, automation, and more.
 
 ---
 
@@ -18,153 +18,150 @@ Built for freelancers specializing in **n8n workflow automation**, Make.com, and
 | `get_messages` | Read conversations and check for unread messages |
 | `send_message` | Reply to clients in ongoing conversations |
 | `get_profile` | View your freelancer profile, JSS score, and connects balance |
+| `update_profile` | Update your freelancer profile title, overview, and skills |
+| `manual_login` | Capture session cookies from an already-logged-in Chrome tab |
 
 ---
 
-## How It Works
+## Architecture
 
 ```
 Claude Agent
     │
     ▼
-upwork-mcp (MCP Server, stdio)
+MCP Gateway (stdio, never restarts)
+    │  HTTP POST /tool
+    ▼
+Worker Server (port 47821, hot-reloads on code changes)
     │
-    ├── Playwright (headless Chromium) ─── Upwork Web UI
-    │       └── Stealth mode (anti-bot detection)
-    │       └── Session persistence (cookies saved to disk)
+    ▼
+CDP Proxy (port 9223, rewrites Host headers)
     │
-    └── Upwork REST API (OAuth 1.0a) ─── Official API endpoints
+    ▼
+Chrome on host (port 9222, Playwright CDP connection)
+    │
+    ▼
+Upwork Web UI
 ```
 
-The server communicates over **stdio** (standard MCP transport), making it compatible with Claude Desktop, Claude Code, and any MCP-compatible client.
+The **gateway/worker split** means you can update tool logic without restarting Claude or your MCP client.
 
 ---
 
 ## Prerequisites
 
 - Node.js 20+
-- Docker (for containerized deployment)
+- Docker + Docker Compose
+- Google Chrome installed
 - An Upwork freelancer account
-- (Optional) [Upwork API keys](https://www.upwork.com/developer/keys/list) for stats/earnings endpoints
 
 ---
 
-## Quick Start
+## Quick Start (Docker)
 
-### 1. Clone and install
+### 1. Clone and configure
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/upwork-mcp.git
 cd upwork-mcp
-npm install
-```
-
-### 2. Configure environment
-
-```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your credentials:
+Edit `.env`:
 
 ```env
 UPWORK_EMAIL=your@email.com
 UPWORK_PASSWORD=yourpassword
 
-FREELANCER_TITLE=n8n Workflow Automation Expert
-FREELANCER_NICHE=n8n,workflow automation,make.com
+FREELANCER_NAME=Your Name
+FREELANCER_TITLE=Your Professional Title
+FREELANCER_NICHE=your,skills,here
 
 BID_RATE_DEFAULT=40
 BID_RATE_MIN=25
-BID_RATE_MAX=75
+BID_RATE_MAX=100
 ```
 
-### 3. Build
+### 2. Start Chrome with CDP
+
+```bat
+connect-chrome-docker.bat
+```
+
+This launches Chrome with remote debugging + a CDP proxy that allows Docker to connect.
+
+### 3. Start the worker
 
 ```bash
-npm run build
+docker compose up -d
 ```
 
-### 4. First-time login (visible browser)
+### 4. Capture your session
 
-On first run, set `BROWSER_HEADLESS=false` to see the browser and handle any 2FA:
-
-```bash
-BROWSER_HEADLESS=false npm run dev
-```
-
-The session is saved to `./sessions/upwork-session.json` and reused on subsequent runs.
+In Claude, call `manual_login` — it extracts cookies from your logged-in Chrome tab and saves the session. You only need to do this once (or after your session expires).
 
 ---
 
 ## Connect to Claude Code
 
-Add to your MCP config (`~/.claude/claude_desktop_config.json` or via `claude mcp add`):
+Add to your MCP config (`~/.claude/claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "upwork": {
       "command": "node",
-      "args": ["/absolute/path/to/upwork-mcp/dist/index.js"],
+      "args": ["/absolute/path/to/upwork-mcp/dist/gateway.js"],
       "env": {
-        "UPWORK_EMAIL": "your@email.com",
-        "UPWORK_PASSWORD": "yourpassword",
-        "FREELANCER_TITLE": "n8n Workflow Automation Expert",
-        "BID_RATE_DEFAULT": "40",
-        "BROWSER_HEADLESS": "true"
+        "WORKER_PORT": "47821"
       }
     }
   }
 }
 ```
 
-Or using Claude Code CLI:
+Or via CLI:
 
 ```bash
-claude mcp add upwork node /absolute/path/to/upwork-mcp/dist/index.js
+claude mcp add upwork node /absolute/path/to/upwork-mcp/dist/gateway.js
 ```
 
 ---
 
-## Docker Deployment
+## Local Development (Hot Reload)
 
 ```bash
-# Copy and configure env
-cp .env.example .env
-
-# Build and run
-docker compose up --build -d
+npm install
+npm run worker   # starts tsc --watch + nodemon on dist/worker.js
 ```
 
-The session volume (`upwork_sessions`) persists login state across container restarts.
+The gateway (`dist/gateway.js`) runs separately and proxies to the local worker — changes to any tool file reload the worker instantly without restarting Claude.
 
 ---
 
 ## Recommended Agent Workflow
 
-The intended workflow for the Claude agent:
-
 ```
-1. get_profile          → Check connects balance before bidding
-2. search_jobs          → Find n8n/automation jobs (e.g., query: "n8n workflow")
-3. get_job_details      → Get full description + screening questions
-4. analyze_job          → Score the opportunity (skip if grade D or F)
-5. submit_proposal      → Auto-bid with personalized cover letter
-6. get_messages         → Check for client responses (run periodically)
-7. send_message         → Reply to clients
-8. get_proposals        → Track active proposals
+1. manual_login      → Capture session (first time / session expired)
+2. get_profile       → Check connects balance before bidding
+3. search_jobs       → Find relevant jobs by keyword
+4. get_job_details   → Get full description + screening questions
+5. analyze_job       → Score the opportunity (skip grade D or F)
+6. submit_proposal   → Auto-bid with personalized cover letter
+7. get_messages      → Check for client responses
+8. send_message      → Reply to clients
+9. get_proposals     → Track active proposals
 ```
 
 ### Example agent prompt
 
 ```
-Search for n8n automation jobs posted in the last 3 days.
+Search for freelance jobs matching my skills posted in the last 3 days.
 For each job with grade A or B:
-1. Get full details
+1. Get full job details
 2. Analyze the opportunity
-3. Write a personalized proposal focusing on my n8n expertise
-4. Submit the proposal at the recommended bid rate
+3. Write a personalized proposal highlighting my relevant experience
+4. Submit at the recommended bid rate
 ```
 
 ---
@@ -175,8 +172,8 @@ The `analyze_job` tool scores each job across 5 dimensions:
 
 | Dimension | Max Points | What It Measures |
 |-----------|-----------|-----------------|
-| Niche Fit | 30 | n8n/automation keywords in title, description, skills |
-| Client Quality | 25 | Rating, total spend, hire rate, location |
+| Niche Fit | 30 | Keyword match between job and your `FREELANCER_NICHE` |
+| Client Quality | 25 | Rating, total spend, hire rate, payment verified |
 | Budget Fit | 20 | Budget vs your target rate, estimated project value |
 | Competition | 10 | Number of existing proposals (fewer = better) |
 | Project Clarity | 10 | Description detail, skills listed, budget specified |
@@ -200,13 +197,12 @@ The `analyze_job` tool scores each job across 5 dimensions:
 ```
 upwork-mcp/
 ├── src/
-│   ├── index.ts                  # MCP Server entry (tool registry + stdio transport)
+│   ├── gateway.ts                # MCP stdio gateway (thin proxy, never restarts)
+│   ├── worker.ts                 # HTTP tool server (hot-reloads via nodemon)
 │   ├── config.ts                 # Environment configuration
 │   ├── browser/
-│   │   ├── browser-manager.ts    # Playwright singleton with stealth patches
-│   │   └── upwork-auth.ts        # Login flow + session persistence
-│   ├── api/
-│   │   └── upwork-api.ts         # Upwork REST API client (OAuth 1.0a)
+│   │   ├── browser-manager.ts    # Playwright CDP connection manager
+│   │   └── upwork-auth.ts        # Session management
 │   └── tools/
 │       ├── search-jobs.ts
 │       ├── get-job-details.ts
@@ -215,7 +211,12 @@ upwork-mcp/
 │       ├── get-proposals.ts
 │       ├── get-messages.ts
 │       ├── send-message.ts
-│       └── get-profile.ts
+│       ├── get-profile.ts
+│       ├── update-profile.ts
+│       └── manual-login.ts       # CDP cookie extractor
+├── cdp-proxy.cjs                 # Host-side proxy: Docker → Chrome (fixes Host header)
+├── connect-chrome-docker.bat     # Launch Chrome + CDP proxy (for Docker use)
+├── connect-chrome.bat            # Launch Chrome only (for local use)
 ├── Dockerfile
 ├── docker-compose.yml
 └── .env.example
@@ -223,39 +224,21 @@ upwork-mcp/
 
 ---
 
-## Important Notes
+## Notes
+
+### Session Management
+Login is handled manually via `manual_login`. Open Chrome, log in to Upwork normally (including any 2FA), then call `manual_login` — it captures all cookies and saves them for Playwright to reuse.
 
 ### Bot Detection
-Upwork actively detects automation. This server uses:
-- Headless Chromium with `navigator.webdriver` removed
-- Randomized typing delays
-- Tracking/analytics requests blocked
-- Realistic user agent and viewport
-
-Despite these measures, Upwork may still flag unusual activity. Use reasonable request intervals and do not run the agent 24/7.
+Upwork may detect unusual activity. Use reasonable request intervals and do not run the agent continuously. The server connects to your real Chrome profile via CDP, which behaves more like a real browser than headless automation.
 
 ### Selector Stability
-Upwork's UI changes periodically. Browser-based selectors in `src/tools/` may need updating if the UI is redesigned. The server uses multiple fallback selectors for resilience.
+Upwork's UI changes periodically. Browser-based selectors in `src/tools/` may need updating if the UI is redesigned.
 
 ### Ethical Use
 - Only automate your own account
 - Comply with [Upwork's Terms of Service](https://www.upwork.com/legal/terms-of-use/)
 - Review proposals before submission in production use
-
----
-
-## Development
-
-```bash
-# Run in development mode (hot reload)
-npm run dev
-
-# Build for production
-npm run build
-
-# Run built version
-npm start
-```
 
 ---
 
