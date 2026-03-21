@@ -49,95 +49,60 @@ export async function getJobDetails(input: GetJobDetailsInput): Promise<JobDetai
     await page.goto(input.job_url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await humanDelay(2000, 4000);
 
-    // Wait for job content
-    await page.waitForSelector('h1, [data-test="job-title"]', { timeout: 15000 });
+    // Wait for job content — title is h4 on Upwork job detail page
+    await page.waitForSelector('h4, [data-test="Description"]', { timeout: 15000 });
     await humanDelay(1000, 2000);
 
     const details = await page.evaluate((): JobDetails => {
-      const get = (sel: string) =>
-        document.querySelector(sel)?.textContent?.trim() ?? '';
-      const getAll = (sel: string) =>
-        Array.from(document.querySelectorAll(sel))
-          .map((el) => el.textContent?.trim())
-          .filter(Boolean) as string[];
-      const getAttr = (sel: string, attr: string) =>
-        document.querySelector(sel)?.getAttribute(attr) ?? '';
+      const get = (sel: string) => document.querySelector(sel)?.textContent?.trim() ?? '';
+      const getAll = (sel: string) => Array.from(document.querySelectorAll(sel)).map(el => el.textContent?.trim()).filter(Boolean) as string[];
 
       const url = window.location.href;
-      const idMatch = url.match(/~([a-z0-9]+)/);
+      const idMatch = url.match(/~([a-z0-9]+)/i);
       const id = idMatch?.[1] ?? '';
 
+      // Title is in h4 on job detail page
+      const title = get('h4') || get('h1') || get('[data-test="job-title"]');
+
+      // Description
+      const description = get('[data-test="Description"]') || get('.description') || '';
+
+      // Parse job info list items (budget, duration, experience, etc.)
+      const listItems = Array.from(document.querySelectorAll('li')).map(el => el.textContent?.replace(/\s+/g, ' ').trim()).filter(Boolean) as string[];
+      const budget = listItems.find(t => /\$[\d,]+/.test(t) && (t.includes('/hr') || t.includes('Hourly') || t.includes('Fixed'))) ?? listItems.find(t => t.includes('Hourly') || t.includes('Fixed')) ?? '';
+      const duration = listItems.find(t => t.includes('month') || t.includes('week') || t.includes('Duration')) ?? '';
+      const experience_level = listItems.find(t => t.includes('Expert') || t.includes('Intermediate') || t.includes('Entry')) ?? '';
+      const job_type = budget.includes('Hourly') ? 'Hourly' : budget.includes('Fixed') ? 'Fixed-price' : '';
+
+      // Skills
+      const skills = getAll('.up-skill-badge, [data-test="attr-item"], .skills-list .skill').length > 0
+        ? getAll('.up-skill-badge, [data-test="attr-item"], .skills-list .skill')
+        : getAll('[data-test="token"]');
+
+      // Activity / proposals
+      const proposals_count = listItems.find(t => t.includes('Proposals:') || t.includes('to ')) ?? '';
+      const interviewing_count = listItems.find(t => t.startsWith('Interviewing:')) ?? '';
+      const invites_sent = listItems.find(t => t.startsWith('Invites sent:')) ?? '';
+
+      // Client info from about-client-container
+      const clientContainer = document.querySelector('[data-test="about-client-container"]');
+      const clientItems = clientContainer ? Array.from(clientContainer.querySelectorAll('li,p,div')).map(el => el.textContent?.replace(/\s+/g, ' ').trim()).filter(t => t && t.length > 2 && t.length < 100) : [];
+      const location = clientItems.find(t => /[A-Z][a-z].*\d{1,2}:\d{2}/.test(t) || t.includes('Israel') || t.includes('United')) ?? '';
+      const rating = clientItems.find(t => t.includes('5.0') || t.includes('4.') || t.includes('of 5')) ?? '';
+      const total_spent = listItems.find(t => t.includes('total spent') || t.includes('K total') || t.includes('M total')) ?? '';
+      const jobs_posted = listItems.find(t => t.includes('jobs posted')) ?? '';
+      const hire_rate = listItems.find(t => t.includes('hire rate')) ?? '';
+      const member_since = listItems.find(t => t.includes('Member since')) ?? '';
+
       // Screening questions
-      const questionEls = document.querySelectorAll(
-        '[data-test="additional-question"], .air3-card-section .questions li, [data-cy="qa-question"]'
-      );
-      const screening_questions = Array.from(questionEls)
-        .map((el) => el.textContent?.trim())
-        .filter(Boolean) as string[];
+      const screening_questions = getAll('[data-test="additional-question"], .screening-question, [class*="question"] li');
 
       return {
-        id,
-        url,
-        title:
-          get('[data-test="job-title"]') ||
-          get('h1') ||
-          get('.job-title'),
-        description:
-          get('[data-test="job-description"] .air3-line-clamp') ||
-          get('[data-test="description"]') ||
-          get('.job-description') ||
-          get('section[data-cy="description"] p'),
-        budget:
-          get('[data-test="budget"]') ||
-          get('.budget') ||
-          get('[data-cy="budget"]'),
-        job_type:
-          get('[data-test="engagement-type"], [data-cy="job-type"]') ||
-          get('.job-type'),
-        duration:
-          get('[data-test="duration"], [data-cy="duration"]') ||
-          get('.duration'),
-        experience_level:
-          get('[data-test="contractor-tier"], [data-cy="experience-level"]') ||
-          get('.experience-level'),
-        posted_at:
-          get('[data-test="posted-on"], time[datetime]') ||
-          getAttr('time', 'datetime'),
-        skills:
-          getAll('[data-test="token"], .skill-badge, [data-cy="skill"]').length > 0
-            ? getAll('[data-test="token"], .skill-badge, [data-cy="skill"]')
-            : getAll('.air3-token'),
-        category: get('[data-test="category"], [data-cy="category"]'),
-        subcategory: get('[data-test="subcategory"], [data-cy="subcategory"]'),
-        screening_questions,
-        client: {
-          name: get('[data-test="client-name"], [data-cy="client-name"]'),
-          location:
-            get('[data-test="client-location"] strong') ||
-            get('[data-cy="client-location"]'),
-          rating:
-            get('[data-test="client-rating"] .rating') ||
-            get('[data-cy="client-rating"]'),
-          reviews_count: get('[data-test="reviews-count"]') || '',
-          jobs_posted:
-            get('[data-test="jobs-posted"]') ||
-            get('[data-cy="jobs-posted"]'),
-          hire_rate:
-            get('[data-test="hire-rate"]') ||
-            get('[data-cy="hire-rate"]'),
-          total_spent:
-            get('[data-test="total-spent"]') ||
-            get('[data-cy="total-spent"]'),
-          member_since:
-            get('[data-test="member-since"]') ||
-            get('[data-cy="member-since"]'),
-        },
-        proposals_count:
-          get('[data-test="proposals-tier"]') ||
-          get('[data-cy="proposals"]'),
-        interviewing_count: get('[data-test="interviewing"]') || '',
-        invites_sent: get('[data-test="invites-sent"]') || '',
-        connects_required: get('[data-test="connects-to-apply"]') || '',
+        id, url, title, description, budget, job_type, duration, experience_level,
+        posted_at: listItems.find(t => t.includes('ago') || t.includes('Posted')) ?? '',
+        skills, category: '', subcategory: '', screening_questions,
+        client: { name: '', location, rating, reviews_count: '', jobs_posted, hire_rate, total_spent, member_since },
+        proposals_count, interviewing_count, invites_sent, connects_required: '',
       };
     });
 
