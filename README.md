@@ -62,7 +62,7 @@ The **gateway/worker split** means you can update tool logic without restarting 
 ### 1. Clone and configure
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/upwork-mcp.git
+git clone https://github.com/zcrossoverz/upwork-mcp.git
 cd upwork-mcp
 cp .env.example .env
 ```
