@@ -87,6 +87,7 @@ const TOOLS: Tool[] = [
         budget_max:        { type: ['number', 'string'] },
         posted_within_days:{ type: ['number', 'string'] },
         limit:             { type: ['number', 'string'] },
+        max_pages:         { type: ['number', 'string'], description: 'Pages to scrape (10 jobs/page). Default: 1, max: 5' },
       },
       required: ['query'],
     },

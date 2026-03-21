@@ -34,7 +34,7 @@ export const AnalyzeJobSchema = z.object({
     })
     .describe('Job data from get_job_details'),
   my_rate: z
-    .number()
+    .coerce.number()
     .optional()
     .describe('Your target hourly rate in USD. Defaults to BID_RATE_DEFAULT from config.'),
 });

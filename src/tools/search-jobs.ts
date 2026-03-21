@@ -28,6 +28,7 @@ export const SearchJobsSchema = z.object({
     .default(7)
     .describe('Only show jobs posted within N days'),
   limit: z.coerce.number().optional().default(10).describe('Max number of results to return'),
+  max_pages: z.coerce.number().optional().default(1).describe('Number of pages to scrape (10 jobs/page). Default: 1, max: 5'),
 });
 
 export type SearchJobsInput = z.infer<typeof SearchJobsSchema>;
@@ -47,84 +48,109 @@ export interface JobSummary {
   client_location: string;
 }
 
+function extractJobsFromPage(cards: NodeListOf<Element>, seenIds: Set<string>): JobSummary[] {
+  const results: JobSummary[] = [];
+  cards.forEach((card, i) => {
+    const titleEl = card.querySelector('[data-test="job-tile-title-link UpLink"], h2 a');
+    const title = titleEl?.textContent?.trim() ?? '';
+    const href = titleEl?.getAttribute('href') ?? '';
+    if (!title || !href) return;
+
+    const url = href.startsWith('http') ? href : `https://www.upwork.com${href}`;
+    const idMatch = href.match(/~([a-z0-9]+)/i);
+    const id = idMatch?.[1] ?? `job_${i}`;
+    if (seenIds.has(id)) return;
+
+    const descEl = card.querySelector('[data-test="UpCLineClamp JobDescription"]');
+    const posted_at = card.querySelector('[data-test="job-pubilshed-date"]')?.textContent?.trim() ?? '';
+    const job_type = card.querySelector('[data-test="job-type-label"]')?.textContent?.trim() ?? '';
+    const experience_level = card.querySelector('[data-test="experience-level"]')?.textContent?.trim() ?? '';
+    const proposals_count = card.querySelector('[data-test="proposals-tier"]')?.textContent?.trim() ?? '';
+    const client_location = card.querySelector('[data-test="location"]')?.textContent?.replace('Location', '').trim() ?? '';
+    const client_rating = card.querySelector('[data-test="total-feedback"]')?.textContent?.trim().slice(0, 20) ?? '';
+    const skillEls = card.querySelectorAll('[data-test="token"]');
+    const skills = Array.from(skillEls).map(el => el.textContent?.trim()).filter(Boolean) as string[];
+    const budgetEl = card.querySelector('[data-test="budget"], [data-test="duration-label"]');
+    const budget = budgetEl?.textContent?.trim() ?? job_type;
+
+    results.push({ id, title, url, budget, job_type, experience_level, posted_at, description_snippet: descEl?.textContent?.trim().slice(0, 250) ?? '', skills, proposals_count, client_rating, client_location });
+  });
+  return results;
+}
+
 export async function searchJobs(input: SearchJobsInput): Promise<JobSummary[]> {
   const page = await ensureLoggedIn();
+  const maxPages = Math.min(input.max_pages ?? 1, 5);
+  const allJobs: JobSummary[] = [];
+  const seenIds = new Set<string>();
 
   try {
-    // Build Upwork search URL
     const params = new URLSearchParams();
     params.set('q', input.query);
-    params.set('sort', 'recency'); // Sort by newest
-
-    if (input.job_type !== 'all') {
-      params.set('job_type', input.job_type === 'hourly' ? 'hourly' : 'fixed');
-    }
+    params.set('sort', 'recency');
+    if (input.job_type !== 'all') params.set('job_type', input.job_type === 'hourly' ? 'hourly' : 'fixed');
     if (input.experience_level !== 'all') {
-      const levelMap: Record<string, string> = {
-        entry: '1',
-        intermediate: '2',
-        expert: '3',
-      };
-      params.set('contractor_tier', levelMap[input.experience_level]);
+      params.set('contractor_tier', ({ entry: '1', intermediate: '2', expert: '3' })[input.experience_level] ?? '');
     }
     if (input.budget_min) params.set('budget', input.budget_min.toString());
-    if (input.posted_within_days && input.posted_within_days <= 7) {
-      params.set('t', 'weeks');
-    }
+    if (input.posted_within_days && input.posted_within_days <= 7) params.set('t', 'weeks');
 
-    const searchUrl = `https://www.upwork.com/nx/search/jobs/?${params.toString()}`;
-    console.error('[searchJobs] Navigating to:', searchUrl);
+    for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+      if (allJobs.length >= input.limit) break;
 
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await humanDelay(2000, 3500);
+      params.set('page', pageNum.toString());
+      const searchUrl = `https://www.upwork.com/nx/search/jobs/?${params.toString()}`;
+      console.error(`[searchJobs] Page ${pageNum}/${maxPages}: ${searchUrl}`);
 
-    // Wait for job cards
-    await page.waitForSelector('article[data-test="JobTile"]', { timeout: 15000 }).catch(() => {
-      console.error('[searchJobs] Job tiles not found');
-    });
+      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await humanDelay(2000, 3000);
 
-    await humanDelay(1000, 2000);
+      await page.waitForSelector('article[data-test="JobTile"]', { timeout: 15000 }).catch(() => {
+        console.error(`[searchJobs] No job tiles on page ${pageNum}`);
+      });
+      await humanDelay(800, 1500);
 
-    const jobs = await page.evaluate((limit: number) => {
-      const cards = document.querySelectorAll('article[data-test="JobTile"]');
-      const results: JobSummary[] = [];
+      const pageJobs = await page.evaluate(extractJobsFromPage as unknown as (cards: NodeListOf<Element>, seenIds: Set<string>) => JobSummary[]);
 
-      cards.forEach((card, i) => {
-        if (i >= limit) return;
-
-        const titleEl = card.querySelector('[data-test="job-tile-title-link UpLink"], h2 a');
-        const title = titleEl?.textContent?.trim() ?? '';
-        const href = titleEl?.getAttribute('href') ?? '';
-        const url = href.startsWith('http') ? href : `https://www.upwork.com${href}`;
-        const idMatch = href.match(/~([a-z0-9]+)/i);
-        const id = idMatch?.[1] ?? `job_${i}`;
-
-        const descEl = card.querySelector('[data-test="UpCLineClamp JobDescription"]');
-        const description_snippet = descEl?.textContent?.trim().slice(0, 250) ?? '';
-
-        const posted_at = card.querySelector('[data-test="job-pubilshed-date"]')?.textContent?.trim() ?? '';
-        const job_type = card.querySelector('[data-test="job-type-label"]')?.textContent?.trim() ?? '';
-        const experience_level = card.querySelector('[data-test="experience-level"]')?.textContent?.trim() ?? '';
-        const proposals_count = card.querySelector('[data-test="proposals-tier"]')?.textContent?.trim() ?? '';
-        const client_location = card.querySelector('[data-test="location"]')?.textContent?.replace('Location','').trim() ?? '';
-        const total_spent = card.querySelector('[data-test="total-spent"]')?.textContent?.trim() ?? '';
-        const client_rating = card.querySelector('[data-test="total-feedback"]')?.textContent?.trim().slice(0, 20) ?? '';
-
-        const skillEls = card.querySelectorAll('[data-test="token"]');
-        const skills = Array.from(skillEls).map(el => el.textContent?.trim()).filter(Boolean) as string[];
-
-        // Budget: hourly shows in job-type-label area, fixed shows separately
-        const budgetEl = card.querySelector('[data-test="budget"], [data-test="duration-label"]');
-        const budget = budgetEl?.textContent?.trim() ?? job_type;
-
-        results.push({ id, title, url, budget, job_type, experience_level, posted_at, description_snippet, skills, proposals_count, client_rating, client_location });
+      // page.evaluate can't use closure — re-extract manually
+      const rawJobs = await page.evaluate(() => {
+        const cards = document.querySelectorAll('article[data-test="JobTile"]');
+        return Array.from(cards).map(card => {
+          const titleEl = card.querySelector('[data-test="job-tile-title-link UpLink"], h2 a');
+          const title = titleEl?.textContent?.trim() ?? '';
+          const href = titleEl?.getAttribute('href') ?? '';
+          const url = href.startsWith('http') ? href : `https://www.upwork.com${href}`;
+          const idMatch = href.match(/~([a-z0-9]+)/i);
+          const id = idMatch?.[1] ?? '';
+          return {
+            id, title, url,
+            budget: (card.querySelector('[data-test="budget"], [data-test="duration-label"]') as HTMLElement)?.innerText?.trim() ?? (card.querySelector('[data-test="job-type-label"]') as HTMLElement)?.innerText?.trim() ?? '',
+            job_type: (card.querySelector('[data-test="job-type-label"]') as HTMLElement)?.innerText?.trim() ?? '',
+            experience_level: (card.querySelector('[data-test="experience-level"]') as HTMLElement)?.innerText?.trim() ?? '',
+            posted_at: (card.querySelector('[data-test="job-pubilshed-date"]') as HTMLElement)?.innerText?.trim() ?? '',
+            description_snippet: ((card.querySelector('[data-test="UpCLineClamp JobDescription"]') as HTMLElement)?.innerText?.trim() ?? '').slice(0, 250),
+            skills: Array.from(card.querySelectorAll('[data-test="token"]')).map(el => el.textContent?.trim()).filter(Boolean) as string[],
+            proposals_count: (card.querySelector('[data-test="proposals-tier"]') as HTMLElement)?.innerText?.trim() ?? '',
+            client_rating: ((card.querySelector('[data-test="total-feedback"]') as HTMLElement)?.innerText?.trim() ?? '').slice(0, 20),
+            client_location: ((card.querySelector('[data-test="location"]') as HTMLElement)?.innerText?.replace('Location', '').trim() ?? ''),
+          };
+        });
       });
 
-      return results;
-    }, input.limit);
+      for (const job of rawJobs) {
+        if (!job.title || !job.id || seenIds.has(job.id)) continue;
+        seenIds.add(job.id);
+        allJobs.push(job as JobSummary);
+        if (allJobs.length >= input.limit) break;
+      }
 
-    console.error(`[searchJobs] Found ${jobs.length} jobs`);
-    return jobs.filter((j) => j.title); // Filter out empty entries
+      console.error(`[searchJobs] Page ${pageNum}: +${rawJobs.length} jobs. Total: ${allJobs.length}`);
+
+      // If fewer than 10 results, no more pages
+      if (rawJobs.length < 10) break;
+    }
+
+    return allJobs;
   } finally {
     await page.close();
   }
