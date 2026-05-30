@@ -3,3 +3,10 @@ dist/
 .env
 sessions/
 *.json.bak
+*.mjs
+*.cjs
+do-login.mjs
+do-login2.mjs
+forgot-pw.mjs
+send-reset.mjs
+try-login.cjs
