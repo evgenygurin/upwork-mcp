@@ -54,6 +54,14 @@ export const config = {
     title: optional('FREELANCER_TITLE', 'n8n Workflow Automation Expert'),
     niche: optional('FREELANCER_NICHE', 'n8n,workflow automation').split(','),
   },
+  proxy: {
+    // Full proxy URL, e.g. http://user:pass@proxy.host:8080 or socks5://...
+    // Residential proxies bypass Upwork's datacenter IP blocks.
+    // When set, the server launches its own Playwright browser (stealth mode)
+    // instead of connecting via CDP. Session is saved/loaded automatically.
+    url: optional('PROXY_URL'),
+    bypass: optional('PROXY_BYPASS'), // comma-separated hosts to bypass, e.g. "localhost,127.0.0.1"
+  },
   bid: {
     min: parseInt(optional('BID_RATE_MIN', '25')),
     max: parseInt(optional('BID_RATE_MAX', '75')),
