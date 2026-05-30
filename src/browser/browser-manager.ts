@@ -9,30 +9,47 @@ const CDP_URL = `http://${CDP_HOST}:${CDP_PORT}`;
 class BrowserManager {
   private browser: Browser | null = null;
   private context: BrowserContext | null = null;
+  private isCdpMode = false;
 
   /**
-   * Connect to the existing Chrome via CDP.
-   * Chrome must be running with --remote-debugging-port=9222
-   * Run connect-chrome.bat to start it.
+   * Try CDP first (existing Chrome). If unavailable, launch Playwright's Chromium directly.
    */
   async init(): Promise<void> {
     if (this.context) return;
 
-    log(`Connecting to Chrome via CDP at ${CDP_URL}...`);
+    // Try CDP first
     try {
+      log(`Trying CDP at ${CDP_URL}...`);
       this.browser = await chromium.connectOverCDP(CDP_URL, { timeout: 5000 }) as unknown as Browser;
       const contexts = (this.browser as unknown as { contexts(): BrowserContext[] }).contexts();
       if (!contexts.length) throw new Error('No browser context found in Chrome');
       this.context = contexts[0];
+      this.isCdpMode = true;
       log('Connected via CDP. Mode: live Chrome.');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(
-        `Cannot connect to Chrome CDP at ${CDP_URL}.\n` +
-        `Run connect-chrome.bat to start Chrome with --remote-debugging-port=${CDP_PORT}.\n` +
-        `Original error: ${msg}`
-      );
+      return;
+    } catch {
+      log(`CDP not available — launching Playwright Chromium in headless mode.`);
     }
+
+    // Fallback: launch Playwright's Chromium directly
+    this.browser = await chromium.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-blink-features=AutomationControlled',
+        '--disable-gpu',
+        '--ignore-certificate-errors',
+      ],
+    });
+    this.context = await this.browser.newContext({
+      userAgent: config.browser.userAgent,
+      viewport: config.browser.viewport,
+      ignoreHTTPSErrors: true,
+    });
+    this.isCdpMode = false;
+    log('Playwright Chromium launched. Mode: headless.');
   }
 
   async newPage(): Promise<Page> {
@@ -48,7 +65,9 @@ class BrowserManager {
   }
 
   async close(): Promise<void> {
-    // Don't close CDP — it's the user's live Chrome
+    if (!this.isCdpMode && this.browser) {
+      await this.browser.close().catch(() => {});
+    }
     this.browser = null;
     this.context = null;
   }
